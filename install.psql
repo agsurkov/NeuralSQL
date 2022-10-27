@@ -1,0 +1,122 @@
+--
+-- INITIAL OBJECTS AUTOMATIC CEREATION
+-- actual on 2022-10-27 by A. Surkov
+-- tested on MS Windows 10, PostgreSQL 13.4+
+-- Linux scripts will come in future.
+--
+--
+-- ==================================================
+-- |         SCRIPT PARAMS SECTION                  |
+-- ==================================================
+--
+--         Externally defined mandatory parameters
+--
+-- Database name (shold be set on upper invocalion script)
+\if :{?db_name}
+\else
+\set db_name 'postgres'  -- does not seem as the best solution, hope schema within will provide proper isolation
+\endif
+\echo 'Will use database: ' :db_name
+--
+-- Working dir (shold be set on upper invocalion script)
+\echo Working folder: :path
+--
+-- Schema name (shold be set on upper invocalion script)
+\if :{?schema}
+\else
+\set schema 'sch'
+\endif
+\echo 'Will create and use schema ' :schema
+--
+--
+--           Working parameters
+--
+-- definitions table name
+\set cft_name :schema.config_table
+--
+-- the table's content file
+\set cft_file :path data.cft
+-- 
+-- intratable links table name
+\set link_name :schema.link_table
+--
+-- intratable links definition file name to be copied
+\set link_file :path data.link
+--
+-- results table defs name
+\set res_def_name :schema.res_def_table
+--
+-- results table defs file
+\set res_def_file :path results.def
+--
+-- results data output table name
+\set res_out_table res_out_table
+--
+-- results data output full table name
+\set res_out_name :schema '.' :res_out_table
+--
+-- =======================================
+-- !         END OF PARAMS SECTION       !
+-- =======================================
+--
+--
+\echo '  <<<<<< STARTING >>>>>>'
+\if :{?create_db}
+  CREATE DATABASE :db_name;   -- a new fresh database is reqested.
+\endif
+                              -- role (e.t.c.) support code possibly appears in future.
+\connect :db_name
+--
+\echo 'Creating project items ...'
+
+CREATE SCHEMA :schema;
+
+-- Configuration table with working tables' parameters.
+CREATE TABLE :cft_name (
+  tbl     TEXT NOT NULL PRIMARY KEY,     -- name of table to be created
+  number  INTEGER NOT NULL DEFAULT 1,    -- cells number to create, default is a cell per table
+  prefix  TEXT NOT NULL DEFAULT 'c',     -- cell's prefix for autocreation
+  ac_func INTEGER NOT NULL DEFAULT 1     -- activation function's id. Sigma (code 1) is default.
+);
+
+COPY :cft_name FROM :'cft_file';
+
+\ir neurocreatetable.pgsql
+\ir neurostep.pgsql
+\echo 'Core scritps loaded'
+
+CALL :schema.neurocreatetables(:'schema');
+
+\echo 'Processing links ...'
+
+CREATE TABLE :link_name (
+  dst_tbl TEXT NOT NULL,    -- table with signal receivers
+  src_tbl TEXT NOT NULL,    -- table with signal producers
+  dst_col TEXT NOT NULL,    -- receiver's cell id col names
+  src_col TEXT NOT NULL,    -- producer's cell id col names
+  weight  REAL DEFAULT 1.0, -- signal's weight
+  CONSTRAINT link_table_uniq UNIQUE(dst_tbl, dst_col, src_tbl, src_col)   -- Only 'one to one' relation is allowed.
+);
+
+COPY :link_name FROM :'link_file';
+CALL :schema.neurocreatetablelinks(:'schema');
+
+DELETE FROM :link_name;   -- make it empty
+
+\echo 'Result gathering gadgets creating ...'
+CREATE SEQUENCE :schema.neuro_epoch START 1;                               -- epoch counter
+
+CREATE TABLE :res_def_name ( -- list of outputs
+  dst_tbl TEXT NOT NULL,     -- table with signal gatherer
+  src_tbl TEXT NOT NULL,     -- table with signal producers
+  dst_col TEXT NOT NULL,     -- gatherer's cell id col names
+  src_col TEXT NOT NULL,     -- producer's cell id col names
+  weight  REAL DEFAULT 1.0,  -- signal's level scale 
+  CONSTRAINT res_def_uniq UNIQUE(dst_tbl, dst_col)
+);
+
+COPY :res_def_name FROM :'res_def_file';
+
+CALL :schema.neurocreateresulttable(:'schema');
+
+\echo '  >>>>>> ALL DONE <<<<<<'
