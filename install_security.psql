@@ -1,0 +1,24 @@
+--
+-- USER MANAGEMENT ROUTINES WITHIN INSTARLLATION
+-- The code is actual on 2022-11-06, is written by A. Surkov
+-- Used PostgreSQL 13.4+.
+--
+\echo '  SECURITY ROUTINES'
+--
+-- Use pg_temp schema to autoerase the routines on the end of current session.
+--
+CREATE PROCEDURE pg_temp.grant_update_worktables(schema TEXT, role TEXT)
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  i TEXT;
+BEGIN
+  FOR i IN EXECUTE format('SELECT tbl FROM %I.config_table', schema) LOOP  -- All working tables grant loop
+    EXECUTE format('GRANT UPDATE ON TABLE %I.%I TO %s;', schema, i, role);
+  END LOOP;
+END;
+$$;
+
+
+
+

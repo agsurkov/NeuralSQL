@@ -1,8 +1,8 @@
 --
 -- INITIAL OBJECTS AUTOMATIC CEREATION
--- actual on 2022-10-27 by A. Surkov
+-- actual on 2022-11-06 by A. Surkov
 -- tested on MS Windows 10, PostgreSQL 13.4+
--- Linux scripts will come in future.
+-- Linux scripts will come in future. May be.
 --
 --
 -- ==================================================
@@ -26,8 +26,143 @@
 \else
 \set schema 'sch'
 \endif
-\echo 'Will create and use schema ' :schema
+\echo 'Will create and use schema ' :'schema'
 --
+-- ==================================================
+-- |         ROLE CREATION SECTION                  |
+-- ==================================================
+--
+-- All roles are NOLOGIN, Admin will populate it as needed.
+-- Roles are creating here (because they are cluster wide) under superuser power.
+--
+-- The master role owns objects and grant permissions to others.
+--
+\if :{?role}
+\else
+\set role 'neuro_master'
+\endif
+\echo 'Will use master role ' :'role' ' for oblects creation.'
+-- check existence
+SELECT count(*) AS flag FROM pg_catalog.pg_roles AS r WHERE r.rolname = :'role' \gset
+\if :flag
+\echo 'Role ' :'role' ' exists.'
+\else
+\echo 'Creating role ' :'role...'
+CREATE ROLE :role;
+\echo 'Role ' :'role' ' created.'
+\endif
+-- \copy works bad on windows platform
+GRANT pg_read_server_files TO :role;          -- for further copy commands
+--
+--
+-- The executor's role is for code processing.
+-- 
+\if :{?executor}
+\else
+\set executor 'neuro_executor'
+\endif
+\echo 'Will use executor role ' :'executor' ' for general processing.'
+-- check existence
+\unset flag
+SELECT count(*) AS flag FROM pg_catalog.pg_roles AS r WHERE r.rolname = :'executor' \gset
+\if :flag
+\echo 'Role ' :'executor' ' exists.'
+\else
+\echo 'Creating role ' :'executor...'
+CREATE ROLE :executor;
+\echo 'Role ' :'executor' ' created.'
+\endif
+--
+-- The reporter's role is for looking on the matter. May be some reports making.
+-- 
+\if :{?reporter}
+\else
+\set reporter 'neuro_reporter'
+\endif
+\echo 'Will use reporter role ' :'reporter' ' for general looking and reporting.'
+-- check existence
+\unset flag
+SELECT count(*) AS flag FROM pg_catalog.pg_roles AS r WHERE r.rolname = :'reporter' \gset
+\if :flag
+\echo 'Role ' :'reporter' ' exists.'
+\else
+\echo 'Creating role ' :'reporter...'
+CREATE ROLE :reporter;
+\echo 'Role ' :'reporter' ' created.'
+\endif
+--
+-- Teacher's role is for teaching the neural network.
+-- 
+\if :{?teacher}
+\else
+\set teacher 'neuro_teacher'
+\endif
+\echo 'Will use teacher role ' :'teacher' ' for teaching the network.'
+-- check existence
+\unset flag
+SELECT count(*) AS flag FROM pg_catalog.pg_roles AS r WHERE r.rolname = :'teacher' \gset
+\if :flag
+\echo 'Role ' :'teacher' ' exists.'
+\else
+\echo 'Creating role ' :'teacher...'
+CREATE ROLE :teacher;
+\echo 'Role ' :'teacher' ' created.'
+\endif
+--
+-- The backup's role is for backup and restore. May be some other maintenance.
+-- (to be implemented)
+-- 
+\if :{?backup}
+\else
+\set backup 'neuro_backup'
+\endif
+\echo 'Will use backup role ' :'backup' ' for general save and restore neural network data.'
+-- check existence
+\unset flag
+SELECT count(*) AS flag FROM pg_catalog.pg_roles AS r WHERE r.rolname = :'backup' \gset
+\if :flag
+\echo 'Role ' :'backup' ' exists.'
+\else
+\echo 'Creating role ' :'backup...'
+CREATE ROLE :backup;
+\echo 'Role ' :'backup' ' created.'
+\endif
+--
+-- The data provider's role is for providing input data.
+-- 
+\if :{?provider}
+\else
+\set provider 'neuro_provider'
+\endif
+\echo 'Will use provider role ' :'provider' ' for input data supplying.'
+-- check existence
+\unset flag
+SELECT count(*) AS flag FROM pg_catalog.pg_roles AS r WHERE r.rolname = :'provider' \gset
+\if :flag
+\echo 'Role ' :'provider' ' exists.'
+\else
+\echo 'Creating role ' :'provider...'
+CREATE ROLE :provider;
+\echo 'Role ' :'provider' ' created.'
+\endif
+--
+-- The data collector's role is for collection results.
+-- 
+\if :{?collector}
+\else
+\set collector 'neuro_collector'
+\endif
+\echo 'Will use collector role ' :'collector' ' for getting results.'
+-- check existence
+\unset flag
+SELECT count(*) AS flag FROM pg_catalog.pg_roles AS r WHERE r.rolname = :'collector' \gset
+\if :flag
+\echo 'Role ' :'collector' ' exists.'
+\else
+\echo 'Creating role ' :'collector...'
+CREATE ROLE :collector;
+\echo 'Role ' :'collector' ' created.'
+\endif
 --
 --           Working parameters
 --
@@ -43,17 +178,12 @@
 -- intratable links definition file name to be copied
 \set link_file :path data.link
 --
--- results table defs name
-\set res_def_name :schema.res_def_table
+-- Input signals table defs file
+\set input_def_file :path input.def
 --
--- results table defs file
-\set res_def_file :path results.def
+-- Output results table defs file
+\set output_def_file :path output.def
 --
--- results data output table name
-\set res_out_table res_out_table
---
--- results data output full table name
-\set res_out_name :schema '.' :res_out_table
 --
 -- =======================================
 -- !         END OF PARAMS SECTION       !
@@ -61,15 +191,36 @@
 --
 --
 \echo '  <<<<<< STARTING >>>>>>'
+--
 \if :{?create_db}
   CREATE DATABASE :db_name;   -- a new fresh database is reqested.
 \endif
-                              -- role (e.t.c.) support code possibly appears in future.
+--
+-- Superuser is a cluster wide role, so on a target db it will be a superuser as well.
+--
 \connect :db_name
 --
-\echo 'Creating project items ...'
-
+GRANT CREATE ON DATABASE :db_name TO :role;
+SET ROLE :role;
+\echo 'Switched to role ' :'role'
+--
 CREATE SCHEMA :schema;
+\ir install_security.psql
+--
+-- Settings table.
+CREATE TABLE :schema.settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
+INSERT INTO :schema.settings (key, value) VALUES
+    ('master',    :'role'),
+    ('executor',  :'executor'),
+    ('reporter',  :'reporter'),
+    ('teacher',   :'teacher'),
+    ('backup',    :'backup'),
+    ('provider',  :'provider'),
+    ('collector', :'collector');
 
 -- Configuration table with working tables' parameters.
 CREATE TABLE :cft_name (
@@ -97,26 +248,80 @@ CREATE TABLE :link_name (
   weight  REAL DEFAULT 1.0, -- signal's weight
   CONSTRAINT link_table_uniq UNIQUE(dst_tbl, dst_col, src_tbl, src_col)   -- Only 'one to one' relation is allowed.
 );
-
-COPY :link_name FROM :'link_file';
-CALL :schema.neurocreatetablelinks(:'schema');
-
-DELETE FROM :link_name;   -- make it empty
-
-\echo 'Result gathering gadgets creating ...'
-CREATE SEQUENCE :schema.neuro_epoch START 1;                               -- epoch counter
-
-CREATE TABLE :res_def_name ( -- list of outputs
-  dst_tbl TEXT NOT NULL,     -- table with signal gatherer
-  src_tbl TEXT NOT NULL,     -- table with signal producers
-  dst_col TEXT NOT NULL,     -- gatherer's cell id col names
-  src_col TEXT NOT NULL,     -- producer's cell id col names
-  weight  REAL DEFAULT 1.0,  -- signal's level scale 
-  CONSTRAINT res_def_uniq UNIQUE(dst_tbl, dst_col)
+--
+\set seq_name :schema '.neuro_epoch'
+CREATE SEQUENCE :schema.neuro_epoch;                               -- current epoch id
+--
+CREATE TABLE :schema.input_link (
+  epoch INTEGER PRIMARY KEY,
+  tbl TEXT NOT NULL,    -- table with signal receivers
+  col TEXT NOT NULL,    -- receiver's cell id col names
+  dat TEXT NOT NULL,    -- column on input_data table with input value
+  wgt REAL DEFAULT 1.0  -- signal's weight
 );
+--
+CREATE TABLE :schema.output_link (
+  epoch INTEGER PRIMARY KEY,
+  tbl TEXT NOT NULL,    -- table with output producer sell
+  col TEXT NOT NULL,    -- cell's id col name
+  dat TEXT NOT NULL,    -- column on output_data table with input value
+  wgt REAL DEFAULT 1.0  -- signal's weight
+);
+--
+CREATE TABLE :schema.input_data (
+  epoch BIGINT PRIMARY KEY
+);
+--
+CREATE TABLE :schema.output_data (
+  epoch BIGINT PRIMARY KEY
+);
+--
+COPY :link_name FROM :'link_file';
+-- CALL :schema.neurocreatetablelinks(:'schema');
+--
+COPY :schema.input_link FROM :'input_def_file';
+-- CALL :schema.neurocreateinputinks(:'schema');  -- add into input_data table specific columns
+--
+COPY :schema.output_link FROM :'output_def_file';
+-- CALL :schema.neurocreateoutputinks(:'schema'); -- add into output_data table specific columns
+--
+-- ===============================================================
+--    ROLES AND PRIVILEDGES SETTING
+--
+-- ALTER DEFAULT PRIVILEGES FOR ROLE :role REVOKE EXECUTE ON FUNCIONS FROM public; -- For Posgresql PRO only
+REVOKE ALL ON SCHEMA :schema FROM public CASCADE;  -- For sure
 
-COPY :res_def_name FROM :'res_def_file';
+-- A member of the executer role only invokes functions that are working in DEFINER mode.
+-- So EXECUTION is the only priviledge that is granted to an executer role member.
+GRANT USAGE ON SCHEMA :schema TO :executor;
+GRANT EXECUTE ON PROCEDURE :schema.neuro_steps(INTEGER, TEXT) TO :executor;
 
-CALL :schema.neurocreateresulttable(:'schema');
+-- A member of the the reporter role can read all tables to inspect activity and make some reports.
+-- So SELECT is the only priviledge that is granted to a reporter role member.
+GRANT USAGE ON SCHEMA :schema TO :reporter;
+GRANT SELECT ON ALL TABLES IN SCHEMA :schema TO :reporter;
+
+-- A member of the the teacher role can read all tables and update working tables to teach the network.
+-- So corresponding priviledges are granted to a teacher role member.
+GRANT USAGE ON SCHEMA :schema TO :teacher;
+GRANT EXECUTE ON ALL FUNCTIONS  IN SCHEMA :schema TO :teacher;
+GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA :schema TO :teacher;
+GRANT SELECT ON ALL TABLES IN SCHEMA :schema TO :teacher;
+CALL pg_temp.grant_update_worktables(:'schema', :'teacher');
+
+-- A member of the the backup role can do all tables actions to manage backups.
+GRANT USAGE ON SCHEMA :schema TO :backup;
+-- GRANT pg_read_server_files TO :backup;          -- file backup / restore to be performed
+-- GRANT pg_write_server_files TO :backup;
+-- TODO the rest
+
+-- A member of the the provider role can do all with input data table.
+GRANT USAGE ON SCHEMA :schema TO :provider;
+GRANT ALL ON TABLE :schema.input_data TO :provider;
+
+-- A member of the the collector role can do read output data table.
+GRANT USAGE  ON SCHEMA :schema TO :collector;
+GRANT SELECT ON TABLE :schema.output_data TO :collector;
+
 
 \echo '  >>>>>> ALL DONE <<<<<<'
